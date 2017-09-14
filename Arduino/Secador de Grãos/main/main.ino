@@ -26,53 +26,56 @@ volatile uint8_t cont = 0, seg = 1;
 
 volatile uint16_t sensor1, sensor2;
 
+
+uint16_t readSensor(uint8_t sensor){
+  
+  // configura o AD no canal 0
+  ADMUX &= 0b01000000;
+
+  if(sensor != 0){
+    ADMUX |= 0b00000001;
+  }
+  
+  ADCSRA |= 0b01000000;
+  while (!(ADCSRA & 0b00010000));
+
+  return ADC;
+
+}
+
+
 ISR(TIMER2_OVF_vect) {
+  
+  sensor1 = readSensor(0);
+  OCR1A = (sensor1>>2);
+  sensor2 = readSensor(1);
+  OCR1B = (sensor2>>2);
+  
   cont++;
   if (cont == 61) {
     seg++;
     cont = 0;
   }
 
-  // configura o AD no canal 0
-  ADMUX &= 0b11111110;
-  set_bit(ADCSRA, 6);
-  //ADCSRA & 0b00010000
-  while (!(tst_bit(ADCSRA, 4)));
-  sensor1 = ADC;
-  if (sensor1 == 0) sensor1 = 0;
-  OCR1A = sensor1;
-
-  //OCR2A = sensor1;
-
-  // configura o AD no canal 1
-  ADMUX |= 0b01000001;
-  set_bit(ADCSRA, 6);
-  //set_bit(ADMUX, 1);
-  while (!(tst_bit(ADCSRA, 4)));
-  sensor2 = ADC;
-  OCR1B = sensor2;
-
-  
-
-
   if (seg <= 10) {
     OCR0A = 0;
-
-    OCR0A = (int)abs((40 * seg) / (100 * sensor1) - (-0.4 * sensor2));
+    OCR0A = (int)(((40 * seg) / (100 * sensor1)) - (-0.4 * sensor2));
   } else {
     if (seg < 25) {
       OCR0A = 102;
     } else {
       if (seg < 35) {
-        OCR0A = (int)(abs((40 * seg) / (100 * sensor1) - (-0.4 * sensor2)));
+        OCR0A = (int)(((40 * seg) / (100 * sensor1)) - (-0.4 * sensor2));
       } else {
         if (seg < 50) {
           OCR0A = 204;
         } else {
           if (seg < 60) {
-            OCR0A = (int)abs((-80 * seg) / (100 * sensor1) - (-0.8) * sensor2);
+            OCR0A = (int)(((-80 * seg) / (100 * sensor1)) - (-0.8) * sensor2);
           } else {
             seg = 1;
+            OCR0A = 0;
+            
           }
         }
       }
@@ -81,22 +84,14 @@ ISR(TIMER2_OVF_vect) {
 
 }
 
-
-
-
 int main() {
- 
+
   // Configura o PORTD inteiro como saída
   DDRD = 0xFF;
-
+  
   // Configura os pinos 1, 2 e 3 do PORTB como saídas
   DDRB |= 0b00001110;
-  PORTB = 0xFF; // alta impedância nos pinos do PORTB que são entradas e nível alto nos pinos que estão como saída
-
-  // Apenas setando o bit do led do arduino para depois fazê-lo piscar
-  set_bit(PORTB, LED);
-  clr_bit(PORTB, LED);
-  
+  PORTB |= 0xFF; // alta impedância nos pinos do PORTB que são entradas e nível alto nos pinos que estão como saída
 
   // Configurando o conversor A/D
   ADMUX = 0b01000000;
@@ -117,7 +112,7 @@ int main() {
   // CONFIGURAÇÃO DO PWM TIMER1
   TCCR1A = 0b10100010;    //PWM não invertido nos pinos OC1A e OC1B
   TCCR1B = 0b00011001;    //liga TC1, prescaler = 1
-  ICR1 = 1023;    //valor máximo para contagem
+  ICR1 = 255;    //valor máximo para contagem
   //OCR1A = 2000;    //controle do ciclo ativo do PWM 0C1A
   //OCR1B = 100;
 
@@ -136,7 +131,11 @@ int main() {
   // vetor que contém os valores da serial convertidos
   uint8_t digitos[tam_vetor];
 
+  //uint8_t palavra[10];
+
+  
   escreve_USART("Valores Sensor1 \n");
+  //uint8_t cont=0;
   
   while (1) {
     // put your main code here, to run repeatedly:
@@ -145,22 +144,49 @@ int main() {
     // exemplo: recebi 255, separa em 2 5 e 5 e os envia para a serial
     
     ident_num((unsigned int) sensor1, digitos);
-    txByte(digitos[4]);
     txByte(digitos[3]);
     txByte(digitos[2]);
     txByte(digitos[1]);
     txByte(digitos[0]);
-    
-	// por alguma razão o app android não está recebendo o último dígito. Assim
-	// estou enviando novamente o digito[0]. Esse é um bug a ser consertado.	
-	txByte(digitos[0]);
-    //escreve_USART(digitos, 4);
-    
-    //txByte('\t');
-    
-    txByte('\n');
-    
+    digitos[4] = ';';
+    txByte(digitos[4]);
 
+    ident_num((unsigned int) sensor2, digitos);
+    txByte(digitos[3]);
+    txByte(digitos[2]);
+    txByte(digitos[1]);
+    txByte(digitos[0]);
+    digitos[4] = ';';
+    txByte(digitos[4]);
+
+    ident_num((unsigned int) OCR0A, digitos);
+    txByte(digitos[3]);
+    txByte(digitos[2]);
+    txByte(digitos[1]);
+    txByte(digitos[0]);
+    //digitos[4] = ';';
+    txByte(digitos[4]);
+
+    
+    
+//  	// por alguma razão o app android não está recebendo o último dígito. Assim
+//  	// estou enviando novamente o digito[0]. Esse é um bug a ser consertado.	
+  	//txByte(digitos[0]);    
+//    //txByte('\t');
+    txByte('\n');
+
+//    while(rxByte() != '\n'){
+//      palavra[cont] += rxByte();
+//      cont++;
+//    }
+//
+//    if(palavra == "ldr"){
+//      set_bit(PORTB, LED);
+//    }else{
+//      clr_bit(PORTB, LED);
+//    }
+//    cont=0;
+    
   }
 
 }
@@ -200,6 +226,12 @@ uint8_t rxByte()
   //Bit RXC sinaliza quando existem bytes nгo lidos no buffer
   while (!(UCSR0A & (1 << RXC0)));
   return UDR0;
+}
+
+uint8_t transceiver(uint8_t *data){
+  //txByte(data);
+  escreve_USART(data);
+  return rxByte();
 }
 
 //Conversão de um número em seus digitos individuais.

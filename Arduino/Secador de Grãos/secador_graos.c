@@ -24,7 +24,7 @@
 
 // modificador volatile é exigido pelo compilador para
 // variáveis usadas dentro de interrupções.
-volatile uint8_t cont = 0, seg = 1; // variáveis de controle de tempo
+volatile uint8_t cont = 0, seg = 1,  tmp1, tmp2, estado = 0, aux = 0; // variáveis de controle de tempo e da curva.
 
 volatile uint16_t sensor1, sensor2; // variáveis dos sensores. Podemos economizar memória usando inteiros de 16 bits para
 				    // armazenar os valores.
@@ -54,42 +54,76 @@ uint16_t readSensor(uint8_t sensor){
 ISR(TIMER2_OVF_vect) { 
   
   sensor1 = readSensor(0); // leia o sensor no canal 0
-  OCR1A = (sensor1>>2); // divide por 4 o valor lido (0 - 1023) para ficar dentro do range do pwm (0 - 255)
+  if (sensor1 == 0) sensor1 = 1; // verifica se é zero o valor. Se for, coloca em 1 para não gerar erros de cálculo
+	OCR1A = (sensor1>>2); // divide por 4 o valor lido (0 - 1023) para ficar dentro do range do pwm (0 - 255)
   sensor2 = readSensor(1); // leia o sensor no canal 1
+	if (sensor2 == 0) sensor2 = 1; // verifica se é zero o valor. Se for, coloca em 1 para não gerar erros de cálculo
   OCR1B = (sensor2>>2); // divide por 4 o valor lido (0 - 1023) para ficar dentro do range do pwm (0 - 255)
   
-  cont++; // a cada 16.384 ms, conta 1 para controlar o tempo.
-  if (cont == 61) {
-    seg++; // 61 estouros do timer é aproximadamente 1 segundo.
-    cont = 0;
-  }
-	
-  // início do cálculo da curva.
-  if (seg <= 10) { 
-    OCR0A = 0;
-    OCR0A = (int)(((40 * seg) / (100 * sensor1)) - (-0.4 * sensor2));
-  } else {
-    if (seg < 25) {
-      OCR0A = 102;
+	// verifica se botão de iniciar foi pressionado.
+	// se for, altera a variável estado e aux para
+	// iniciar o processo de secagem e não permitir que
+	// o botão seja pressionado durante a execução.
+	if ( !tst_bit(PINB, 0) ) {
+
+    if (estado == 0 && aux == 0) {
+      estado = 1;
+      aux = 1;
     } else {
-      if (seg < 35) {
-        OCR0A = (int)(((40 * seg) / (100 * sensor1)) - (-0.4 * sensor2));
-      } else {
-        if (seg < 50) {
-          OCR0A = 204;
-        } else {
-          if (seg < 60) {
-            OCR0A = (int)(((-80 * seg) / (100 * sensor1)) - (-0.8) * sensor2);
-          } else {
-            seg = 1;
-            OCR0A = 0;
-            
-          }
-        }
+      if (aux == 1 && seg > 3) {
+        aux = 0;
+        estado = 0;
       }
     }
   }
+	
+	if (estado) { // se botão foi pressionado
+		
+		cont++; // a cada 16.384 ms, conta 1 para controlar o tempo.
+		if (cont == 61) {
+			seg++; // 61 estouros do timer é aproximadamente 1 segundo.
+			cont = 0;
+		}
 
+		// início do cálculo da curva.
+		if (seg <= 10) {
+      OCR0A = 0;
+      OCR0A = (int) (2.55 * ( ((4 * seg) + (2.8 / sensor1 )) * (1.2 / 1)));
+      OCR0B = OCR0A;
+      //tmp1 = OCR0A/2.55;
+      tmp1 = OCR0A;
+    } else {
+      if (seg < 20) {
+        OCR0A = (int) (tmp1);
+        OCR0B = OCR0A;
+        tmp2 =  OCR0A;
+      } else {
+        if (seg < 30) { // Funcao de secagem: PWM = (P(t) + a/sensor1) * b/sensor2
+          OCR0A = (int) (2.55 * (tmp2 + ( (4 * (seg - 25)) + (2.8 / sensor1)) * (1.2 / 1)));// 3.3 valor de a 1.2 valor de b
+          OCR0B = OCR0A;
+          //tmp1 = OCR0A/2.55;
+          tmp1 = OCR0A;
+        } else {
+          if (seg < 40) {
+            OCR0A = (int) (tmp1);
+            OCR0B = OCR0A;
+            tmp2 = tmp1;
+          } else {
+            if (seg < 60) {
+              OCR0A = (int) (2.55 * (tmp2 - ( (8 * (seg - 50)) + (2.8 / sensor1)) * (1.2 / 1) ));
+              OCR0B = OCR0A;
+            } else {
+              seg = 1;
+              OCR0A = 0;
+              OCR0B = 0;
+              estado = 0;
+              aux = 0;
+						}
+					}
+				}
+			}
+		}
+	}
 }
 
 /********************* FIM DA INTERRUPÇÃO *********************/
@@ -112,7 +146,8 @@ int main() {
   TCCR0A = 0b10100011; //PWM não invertido nos pinos OC0A e OC0B
   TCCR0B = 0b00000011; //liga TC0, prescaler = 64
   OCR0A = 0;    //controle do ciclo ativo do PWM 0C0A
-
+	OCR0B = 0;
+	
   // CONFIGURAÇÃO DO PWM TIMER1
   TCCR1A = 0b10100010;    //PWM não invertido nos pinos OC1A e OC1B
   TCCR1B = 0b00011001;    //liga TC1, prescaler = 1
